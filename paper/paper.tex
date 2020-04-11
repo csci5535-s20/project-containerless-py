@@ -11,7 +11,7 @@
 %%
 %% The "title" command has an optional parameter,
 %% allowing the author to define a "short title" to be used in page headers.
-\title{The Name of the Title is Hope}
+\title{Towards Python for Serverless Acceleration}
 
 %%
 %% The "author" command and its associated commands are used to define
@@ -19,20 +19,19 @@
 %% Of note is the shared affiliation of the first two authors, and the
 %% "authornote" and "authornotemark" commands
 %% used to denote shared contribution to the research.
-\author{TBD}
-\email{tbd@colorado.edu}
-\author{TBD}
-\email{tbd@colorado.edu}
+\author{Dylan Fox}
+\email{dylan.fox@colorado.edu}
+\author{Erika Hunhoff}
+\email{erika.hunhoff@colorado.edu}
 \affiliation{%
   \institution{University of Colorado Boulder}
 }
-
 
 %%
 %% The abstract is a short summary of the work to be presented in the
 %% article.
 \begin{abstract}
-  TBD
+     Serverless computing offers many benefits for programmers, but frequently, slower interpreted languages like Python or JavaScript are used. In their 2019 work, Emily Herbert and Arjun Goha developer a serverless function accelerator that traces and compiles JavaScript to much more performant Rust code. Here, we extend their accelerator to trace and compile Python code as well as JavaScript, allowing more code bases to utilize the accelerator.
 \end{abstract}
 
 %%
@@ -42,17 +41,115 @@
 
 \section{Introduction}
 
+In their 20198 work, Emily Herbert Arjun Goha developed a serverless function accelerator. This accelerator traces JavaScript serverless functions at run-time, and produces an intermediate representation of the program. This intermediate representation is then compiled to Rust code which can be run in place of the JavaScript function. Here, we extend their work by providing a tracing mechanism for Python code. After we trace the python code, we compile it to rust using their Rust compiler. 
+ \par
+ Transforming the Python code to A-Normal Form resolves differences in scoping between Python and Rust, and simplifies the tracing and compilation to Rust.
+ \par
+ Our Python A-Normal Form Code follows three specifications:
+\begin{enumerate}
+    \item All variables defined in functions or modules are initialized to None at the top of the function or module they are initially defined in. 
+    \item All loops are while loops.
+    \item All function applications are named.
+\end{enumerate}
+After A-Normalization, the resulting A-Normal Form Python code has tracing statements inserted into it. All expressions are transformed to be method calls to our tracing library. At run-time, the tracing library outputs the intermediate representation of the code being executed to a JSON file, then executes the Python code. After a number of invocations of the Python serverless function, the JSON file with the intermediate representation is compiled to Rust. Further invocations of the serverless function run the Rust code instead of the Python code. 
+
 \section{Overview}
 
-\section{(Contribution 1)}
+\section{Supported Python Syntax}
 
-\section{(Contribution 2)}
+TODO for HW06
 
-\section{Empirical Evaluation}
+\[\begin{array}{lrcll}
+BinaryOp & op2 & ::= & + & \text{Addition}
+\\
+&&& - & \text{Subtraction}
+\\
+&&& * & \text{Multiplication}
+\\
+&&& / & \text{Division}
+\\
+&&& == & \text{Equals}
+\\
+&&& != & \text{Not equals}
+\\
+&&& < & \text{Less than}
+\\
+&&& <= & \text{Less than or equal to}
+\\
+&&& > & \text{Greater than}
+\\
+&&& >= & \text{Greater than or equal to}
+\\
+&&& and & \text{And}
+\\
+&&& or & \text{Or}
+\\
+UnaryOp & op1 & ::= & not & \text{Logical negation}
+\\ 
+&&& - & \text{Negate}
+\\
+Exp & exp & ::= & Name & \text{Variable}
+\\
+&&& Exp(<Exp>*) & \text{Function call}
+\\
+&&& Exp.Name & \text{Attribute access}
+\\
+&&& Exp[Exp] & \text{Slice access}
+\\
+&&& Exp BinOp Exp & \text{Binary operation}
+\\
+&&& UnaryOp Exp & \text{Unary operation}
+\\
+&&& Int & \text{Integer}
+\\
+&&& Bool & \text{Boolean}
+\\
+&&& String & \text{String}
+\\
+&&& [<Exp>*] & \text{List}
+\\
+&&& {<Exp:Exp>*} & \text{Dictionary}
+\\
+&&& Name = Exp & \text{Variable assignment}
+\\
+&&& Exp[Exp] = Exp & \text{Slice assignment}
+\\
+&&& Exp.Name = Exp & \text{Attribute assignment}
+\\
+&&& def Name(<Name>*) : Block & \text{Function definition}
+\\
+&&& return Exp & \text{Return}
+\\
+&&& if Exp: Block else: Block & \text{If-then-else}
+\\
+&&& while Exp: Block & \text{While}
+\\
+\end{array}\]
+
+\section{A-Normal Form Transformation}
+
+TODO for HW06
+
+%  In Python, variables are scopes much differently than in Rust. Rust supports block scoping, meaning you can scope a variable to any arbitrary block of code. Python only supports scoping at the function, class, and module levels.In practice, this means that all variables defined in while loops, for loops, if/else statements etc. are hoisted to the nearest class, function, or module level. In Python, a variable can be defined inside one block of code and used outside that block as long as it is inside the same module, function, or class. If directly translated to Rust, this variable hoisting would result in undefined variable errors, because Rust implements scoping at a block level.
+
+\section{Tracing}
+
+TODO for HW06
+
+\section{Evaluation}
+
+TODO for HW06
 
 \section{Related Work}
 
+Our work builds on the concepts and code presented in Herbert and Guha \cite{ServerlessAccel}, which was build upon the principles presented in \cite{FormalFoundations}. \cite{ServerlessAccel} focuses on the entire process of creating a JavaScript to IR framework, an IR to Rust compilation process, and a serverless function invoker compatible with OpenWhisk \cite{OpenWhisk}. Our work is more narrow, and seeks to modify the JavaScript to IR phase into a Python to IR process.
+
+
+Work has been done towards formalizing a semantics for Python \cite{pyOpSem}, and there are many tools and libraries for instrumenting Python code that this work builds upon (such as \cite{rpython}). However, our work is specifically geared towards the subset of Python needed to write serverless functions. This is in contrast with existing work which focuses on either creation of general purpose tools or solutions for a particular case (other than serverless).
+
 \section{Conclusion}
+
+TODO by paper deadline
 
 %%
 %% The acknowledgments section is defined using the "acks" environment
