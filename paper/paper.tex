@@ -1,3 +1,4 @@
+
 %% This is an abbreviated template from http://www.sigplan.org/Resources/Author/.
 
 \documentclass[acmsmall,review,authorversion]{acmart}
@@ -41,7 +42,7 @@
 
 \section{Introduction}
 
-In their 20198 work, Emily Herbert Arjun Goha developed a serverless function accelerator. This accelerator traces JavaScript serverless functions at run-time, and produces an intermediate representation of the program. This intermediate representation is then compiled to Rust code which can be run in place of the JavaScript function. Here, we extend their work by providing a tracing mechanism for Python code. After we trace the python code, we compile it to rust using their Rust compiler. 
+In their 2019 work, Emily Herbert and Arjun Goha developed a serverless function accelerator. This accelerator traces JavaScript serverless functions at run-time, and produces an intermediate representation of the program. This intermediate representation is then compiled to Rust code which can be run in place of the JavaScript function. Here, we extend their work by providing a tracing mechanism for Python code. After we trace the python code, we compile it to Rust using their Rust compiler. 
  \par
  Transforming the Python code to A-Normal Form resolves differences in scoping between Python and Rust, and simplifies the tracing and compilation to Rust.
  \par
@@ -55,7 +56,74 @@ After A-Normalization, the resulting A-Normal Form Python code has tracing state
 
 \section{Overview}
 
+In the serverless accelerator framework created by Herbert \& Guha (hereby referred to as 'containerless'), a JavaScript function goes through several distinct phases:
+\begin{enumerate}
+    \item Normalization
+    \item Addition of Tracing Statements
+    \item Tracing to produce IR
+    \item Compilation from IR to Rust
+    \item Invoker uses Rust representation and Original JavaScript function to attempt to accelerate run time safely
+\end{enumerate}
+The goal of this work is to create normalization and tracing implementations that can produce compatible IR files from serverless functions written in Python. Since our goal is to avoid any changes to the IR, we are limited in what Python features we can support by what is already supported in our IR. This is the first challenge: match the supported syntax in JavaScript to a subset of Python that we will support. Details of this process are found in Section \ref{section:pysyntax}.
+\par
+The normalization phase in containerless uses A-Normal Form to take as input JavaScript functions (using the limited features supported) and output normalized JavaScript which is guaranteed to be traced completely during the tracing phase. To give a concrete example, if the following Python function were submitted to our framework:
+%% TODO(erika): reformat these examples as figures, preferably side-by-side
+\begin{verbatim}
+def func():
+    y = []
+    x = [1, 2, 3]
+    for index in range(len(x)):
+        y[index] = x[index]
+        
+    if y[1] == 2:
+        result = 'ok'
+    else:
+        print('Not Ok')
+        result = 'not ok'
+        
+    return result
+\end{verbatim}
+The output of the normalization would be:
+\begin{verbatim}
+def func():
+    y = None
+    x = None
+    result = None
+    
+    loop_incrementor0 = None
+    app0 = None
+    
+    y = []
+    x = [1, 2, 3]
+    
+    loop_incrementor0 = 0
+    while loop_incrementor0 < len(range(len(x))):
+        index = range(len(x))[loop_incrementor]
+        y[index] = x[index]
+        loop_incrementor0 += 1
+        
+    if y[1] == 2:
+        result = 'ok'
+    else:
+        app0 = print('Not Ok')
+        result = 'not ok'
+        
+    return result
+\end{verbatim}
+(Author's Note: These will be reformatted, probably to be side by side, in the final version of this document).
+
+In addition to pursuing the same tracing guarantees in normalization, we also use this phase to address some of the syntactic differences between JavaScript and Python, so that our tracing can mimic the tracing used by containerless. For instance, in JavaScript variables can be declared (use of the 'var' keyword) and are forcibly declared during normalization which then helps determine variable scope during tracing. Since no analogous statement in Python exists, our normalization framework creates 'var = None' statements at the beginning of each function which serve a similar purpose as the declarations used in containerless normalization. More details on the normalization procedure is described in detail in \ref{section:anf}. 
+\par 
+The tracing phase takes as input a normalized function and outputs IR in JSON files. For instance, the previous example could output the following trace:
+\begin{verbatim}
+    TODO: once we have tracing actually working, we will post example here
+\end{verbatim}
+This is the last step of our development. One aspect that makes the tracing phase difficult is that JavaScript serverless functions and Python serverless functions have a slightly different workflow. JavaScript functions receive their input as a request object (and access this object by 'listening'), and 'return' by calling asynchronous return functions. Python serverless functions, on the other hand, take as input a single JSON text argument, and return a single JSON output. Thus, although the mechanics of tracing were similar, the framework for running traces had to be reworked for this new format. Details on tracing are found in \ref{section:tracing}.
+\par
+There are two main categories of evaluation for our work: performance and correctness. Since we focus not on the function invoker or system as a whole but on syntactic definitions, transformations, and tracing, we focus our evaluation on correctness. We measure correctness at all stages by checking whether normalized functions produce the same outputs as original functions, whether traces produced can be compiled into Rust without error, and whether the Rust executes with the same result as the original python. Details on evaluation are found in \ref{section:evaluation}.
+
 \section{Supported Python Syntax}
+\label{section:pysyntax}
 
 TODO for HW06
 
@@ -127,20 +195,24 @@ Exp & exp & ::= & Name & \text{Variable}
 \end{array}\]
 
 \section{A-Normal Form Transformation}
+\label{section:anf}
 
 TODO for HW06
 
 %  In Python, variables are scopes much differently than in Rust. Rust supports block scoping, meaning you can scope a variable to any arbitrary block of code. Python only supports scoping at the function, class, and module levels.In practice, this means that all variables defined in while loops, for loops, if/else statements etc. are hoisted to the nearest class, function, or module level. In Python, a variable can be defined inside one block of code and used outside that block as long as it is inside the same module, function, or class. If directly translated to Rust, this variable hoisting would result in undefined variable errors, because Rust implements scoping at a block level.
 
 \section{Tracing}
+\label{section:tracing}
 
 TODO for HW06
 
 \section{Evaluation}
+\label{section:evaluation}
 
 TODO for HW06
 
 \section{Related Work}
+\label{section:relwork}
 
 Our work builds on the concepts and code presented in Herbert and Guha \cite{ServerlessAccel}, which was build upon the principles presented in \cite{FormalFoundations}. \cite{ServerlessAccel} focuses on the entire process of creating a JavaScript to IR framework, an IR to Rust compilation process, and a serverless function invoker compatible with OpenWhisk \cite{OpenWhisk}. Our work is more narrow, and seeks to modify the JavaScript to IR phase into a Python to IR process.
 
