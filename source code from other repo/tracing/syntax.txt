@@ -1,0 +1,71 @@
+=========================================================================
+To Include:
+=========================================================================
+BinOp ::=
+      +
+    | −
+    | ∗
+    | /
+    | %     NOTE: not in containerless, we'll try to add a wrapper to preserve rust compiler
+    | ∗∗    NOTE: not in containerless, we'll try to add a wrapper to preserve rust compiler
+    | //    TODO: only one of / and // in containerless - I think we may only want to include one?
+    | ==
+    | !=
+    | <
+    | <=
+    | >
+    | >=
+    | and
+    | or
+
+
+UnaryOp ::=
+      not
+    | −
+
+Expr ::=
+      Name                          -- Variable
+    | Expr(〈Expr〉∗)                -- Function call
+    | Expr.Name                     -- Attribute access
+    | Expr[Expr]                    -- Slice access (applies to dictionaries and lists)
+    | Expr BinOp Expr               -- Binary operator
+    | UnaryOpExpr                   -- Unary operator
+    | Int                           -- Literal integer
+    | Bool                          -- Literal boolean
+    | String                        -- Literal string
+    | [〈Expr〉∗]                   -- Literal list
+    | {〈Expr:Expr〉∗}              -- Literal dictionary
+    | Name = Expr                   -- variable assignment
+    | Expr[Expr] = Expr             -- slice assignment (applies to dictionaries and lists)
+    | Expr.Name = Expr              -- attribute assignment
+    | def Name(〈Name〉∗) : Block   -- function definition
+    | return Expr                   -- return
+    | if Expr: Block else: Block    -- if-then-else
+    | while Expr: Block             -- while
+
+=========================================================================
+Future Work
+=========================================================================
+Add to BinOps:
+    | is
+    | in
+
+Add to Expr:
+    | yield Expr                    -- Yield expression
+    | print(Expr)                   -- print
+    | for Name in Expr: Block       -- for
+    | del Name                      -- variable deletion
+    | del Expr[Expr]                -- slice deletion
+    | del Expr.Name                 -- attribute deletion
+    | class Name(Expr): Block       -- class definition
+    | try: Block except Expr, Name: Block   -- try-catch
+    | try: Block finally: Block     -- try-finally
+    | raise Expr                    -- raise
+    | import〈Name〉∗               -- import
+    | pass                          -- pass
+    | break                         -- break
+    | continue                      -- continue
+    | exec Expr in Expr             -- exec
+    | print(Expr)                   -- print
+    | (〈Expr〉∗)                   -- Literal tuple
+    | Expr.Name = Expr              -- attribute assignment
