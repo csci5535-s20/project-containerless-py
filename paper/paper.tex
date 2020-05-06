@@ -1,4 +1,3 @@
-
 %% This is an abbreviated template from http://www.sigplan.org/Resources/Author/.
 
 \documentclass[acmsmall,review,authorversion]{acmart}
@@ -6,13 +5,15 @@
 \acmJournal{FACMP}
 \acmVolume{CSCI 5535}
 \acmNumber{Spring 2020}
+\usepackage{listings}
 
+\usepackage{float}
 \begin{document}
 
 %%
 %% The "title" command has an optional parameter,
 %% allowing the author to define a "short title" to be used in page headers.
-\title{Towards Python for Serverless Acceleration}
+\title{Runtime Instrumentation of Python for Serverless Acceleration}
 
 %%
 %% The "author" command and its associated commands are used to define
@@ -32,7 +33,7 @@
 %% The abstract is a short summary of the work to be presented in the
 %% article.
 \begin{abstract}
-     Serverless computing offers many benefits for programmers, but frequently, slower interpreted languages like Python or JavaScript are used. In their 2019 work, Emily Herbert and Arjun Guha developer a serverless function accelerator that traces and compiles JavaScript to much more performant Rust code. Here, we extend their accelerator to trace and compile Python code as well as JavaScript, allowing more code bases to utilize the accelerator.
+     Serverless computing offers many benefits for programmers, but frequently, slower interpreted or JIT compiled languages like Python or JavaScript are used. In their 2019 work, Emily Herbert and Arjun Guha developed a serverless function accelerator (Containerless) that traces and compiles JavaScript to much more performant Rust code. JavaScript, however, is not the only language used in serverless computing. Requiring developers to write in JavaScript will limit the usefulness of Containerless to JavaScript code bases. Here, we provide tracing support for Python, the first step towards adding Python to Containerless. Python is a leading language in Serverless computing and adding support to Containerless for Python will allow many more developers to utilize this technology.
 \end{abstract}
 
 %%
@@ -42,224 +43,329 @@
 
 \section{Introduction}
 
-In their 2019 work, Emily Herbert and Arjun Guha developed a serverless function accelerator. This accelerator traces JavaScript serverless functions at run-time, and produces an intermediate representation of the program. This intermediate representation is then compiled to Rust code which can be run in place of the JavaScript function. Here, we extend their work by providing a tracing mechanism for Python code. After we trace the python code, we compile it to Rust using their Rust compiler. 
+In their 2019 work, Emily Herbert and Arjun Guha developed a serverless function accelerator framework called Containerless. This accelerator traces JavaScript serverless functions at run-time, and produces an intermediate representation (IR) of the program. The IR is then compiled to Rust code which can be executed in place of the JavaScript function. The overarching motivation of Containerless is to accelerate JavaScript serverless functions because small latencies in serverless execution time can cause discernible lag in serverless applications. A secondary goal is to achieve this without putting additional burden on the serverless developer to either learn a more performant language (i.e. learn Rust) or annotate their code in any way. In fact, whether the function is run as JavaScript or run as compiled Rust is hidden from view by Containerless \cite{ServerlessAccel}. Here, we extend their work by providing a tracing mechanism for Python code. Many choose Python for reasons similar to JavaScript: it is simple to write, and many programmers are familiar with it already. While more work needs to be done to integrate Python execution into Containerless, this is the first step towards that goal.
+\par
+
+\par
+ What follows is an overview of the path a Python serverless function takes in our Python-to-IR framework. First, source code must be transformed to A-Normal Form. Transforming the Python code to A-Normal Form resolves differences in scoping between Python and Rust, and simplifies the tracing and compilation to Rust.
  \par
- Transforming the Python code to A-Normal Form resolves differences in scoping between Python and Rust, and simplifies the tracing and compilation to Rust.
- \par
- Our Python A-Normal Form Code follows three specifications:
+ Our Python A-Normal Form code follows three specifications:
 \begin{enumerate}
-    \item All variables defined in functions or modules are initialized to None at the top of the function or module they are initially defined in. 
+    \item All variables defined in functions or modules are initialized to None at the top of the function or module they are initially defined in.
     \item All loops are while loops.
     \item All function applications are named.
 \end{enumerate}
-After A-Normalization, the resulting A-Normal Form Python code has tracing statements inserted into it. All expressions are transformed to be method calls to our tracing library. At run-time, the tracing library outputs the intermediate representation of the code being executed to a JSON file, then executes the Python code. After a number of invocations of the Python serverless function, the JSON file with the intermediate representation is compiled to Rust. Further invocations of the serverless function run the Rust code instead of the Python code. 
+After A-Normalization, we insert tracing statements into the resulting A-Normal Form Python code. These statements are method calls to our tracing library that are added directly above the corresponding statement in the source code. At run-time, as the Python executes, the tracer library constructs an IR of the code run, and when the function is finished executing the IR is output to a JSON file. After a number of invocations of the Python serverless function, the JSON file with the IR could be compiled to Rust.
 
 \section{Overview}
 
-In the serverless accelerator framework created by Herbert \& Guha (hereby referred to as 'containerless'), a JavaScript function goes through several distinct phases:
+In Containerless, a JavaScript function goes through several distinct phases \cite{ServerlessAccel}:
 \begin{enumerate}
     \item Normalization
     \item Addition of Tracing Statements
-    \item Tracing to produce IR
+    \item Tracing to Produce IR (during executions of the function)
     \item Compilation from IR to Rust
-    \item Invoker uses Rust representation and Original JavaScript function to attempt to accelerate run time safely
+    \item Serverless function invoker dynamically runs either JavaScript or Rust executable
 \end{enumerate}
-The goal of this work is to create normalization and tracing implementations that can produce compatible IR files from serverless functions written in Python. Since our goal is to avoid any changes to the IR, we are limited in what Python features we can support by what is already supported in our IR. This is the first challenge: match the supported syntax in JavaScript to a subset of Python that we will support. Details of this process are found in Section \ref{section:pysyntax}.
+The goal of this work is to create normalization and tracing implementations that can produce compatible IR JSON files from serverless functions written in Python. Since our goal is to avoid any changes to the IR, we are limited in what Python features we can support by what is already supported in the IR in Containerless. Details on supported Python are found in Section \ref{section:pysyntax}.
 \par
-The normalization phase in containerless uses A-Normal Form to take as input JavaScript functions (using the limited features supported) and output normalized JavaScript which is guaranteed to be traced completely during the tracing phase. To give a concrete example, if the following Python function were submitted to our framework:
-%% TODO(erika): reformat these examples as figures, preferably side-by-side
-\begin{verbatim}
-def func():
-    y = 0
-    array_x = [1, 2, 3]
-    for x in array_x:
-        y += x
-        
-    if y == 6:
-        result = 'ok'
-    else:
-        print('Not Ok')
-        result = 'not ok'
-        
-    return result
-\end{verbatim}
-The output of the normalization would be:
-\begin{verbatim}
-def func():
-    y = None
-    array_x = None
-    x = None
-    result = None
-    loop_incrementor0 = None
-    app0 = None
-    
-    y =  0
-    x = [1, 2, 3]
-    
-    loop_incrementor0 = 0
-    while loop_incrementor0 < len(array_x):
-        x = array_x[loop_incrementor]
-        y += x
-        loop_incrementor0 += 1
-        
-    if y == 2:
-        result = 'ok'
-    else:
-        app0 = print('Not Ok')
-        result = 'not ok'
-        
-    return result
-\end{verbatim}
-(the above will be formatted in the final paper as per you suggestions Benno)
-
-In addition to pursuing the same tracing guarantees in normalization, we also use this phase to address some of the syntactic differences between JavaScript and Python, so that our tracing can mimic the tracing used by containerless. For instance, in JavaScript variables can be declared (use of the 'var' keyword) and are forcibly declared during normalization which then helps determine variable scope during tracing. Since no analogous statement in Python exists, our normalization framework creates 'var = None' statements at the beginning of each function which serve a similar purpose as the declarations used in containerless normalization. More details on the normalization procedure is described in detail in \ref{section:anf}. 
-\par 
-The tracing phase takes as input a normalized function and outputs IR in JSON files. For instance, the previous example could output the following trace:
-\begin{verbatim}
-    TODO: once we have tracing actually working, we will post example here
-\end{verbatim}
-This is the last step of our development. One aspect that makes the tracing phase difficult is that JavaScript serverless functions and Python serverless functions have a slightly different workflow. JavaScript functions receive their input as a request object (and access this object by 'listening'), and 'return' by calling asynchronous return functions. Python serverless functions, on the other hand, take as input a single JSON text argument, and return a single JSON output. Thus, although the mechanics of tracing were similar, the framework for running traces had to be reworked for this new format. Details on tracing are found in \ref{section:tracing}.
+The normalization phase in Containerless transforms the source code for a serverless function to A-Normal Form. This phase is also used to address some of the syntactic differences between JavaScript and Python, so that our tracing can mimic the tracing used by Containerless. In JavaScript variables can be declared (use of the 'var' keyword) and are forcibly declared during normalization which determine variable scope during tracing. Since no analogous statement in Python exists, our normalization framework initializes every variable to None at the beginning of each level of scope.  More details on the normalization procedure is described in detail in Section \ref{section:anf}.
 \par
-There are two main categories of evaluation for our work: performance and correctness. Since we focus not on the function invoker or system as a whole but on syntactic definitions, transformations, and tracing, we focus our evaluation on correctness. We measure correctness at all stages by checking whether normalized functions produce the same outputs as original functions, whether traces produced can be compiled into Rust without error, and whether the Rust executes with the same result as the original python. Details on evaluation are found in \ref{section:evaluation}.
+Next, tracing statements are inserted. These ``tracing statements" are method calls to our tracing library. These statements are inserted into the source code so that when the function is run, it incrementally constructs a trace structure. These statements generally are inserted directly above a line of Python source code. During this phase a wrapper function is also placed around the user's serverless function. This wrapper passes the tracing library and the arguments to the user's function, and enables us to run the function outside of a serverless invoker. This allows testing our contributions without modifying the invoker in Containerless. After tracing statements are inserted, the function can be executed. When the function has finished executing, the trace is complete and can be converted to JSON and output to a trace file. Details on tracing are found in Section \ref{section:tracing}. An example of an IR trace follows in figure 2. Note that during execution of this program, the if branch of the if/else was not executed, so it is left as undefined (as expected).
 
+\par
+There are two main categories of evaluation for our work: performance and correctness. Since we focus not on the function invoker or system as a whole but on syntactic definitions, transformations, and tracing, we focus our evaluation on correctness. Because the invoker was not modified, it was impossible to actually compile these traces to Rust. Instead, a number of JavaScript programs were ran in Containerless, and the IR output was compared to similar Python programs. Details on evaluation are found in Section \ref{section:evaluation}.
+\begin{figure}[htbp]
+\begin{tabular}{p{0.5\textwidth}p{0.5\textwidth}}
+    \begin{minipage}{.5\textwidth}
+     \begin{lstlisting}[language=Python]
+    def double_absolute_value(x):
+
+        double_x = 2 * x
+
+        if x < 0:
+            return_value = -double_x
+        else:
+            return_value = double_x
+
+    return return_value
+    \end{lstlisting}
+    \caption{An Example Serverless Function}
+    \label{fig:fig1}
+    \end{minipage}
+    &
+    \begin{minipage}{.5\textwidth}
+ \begin{lstlisting}[]
+  { "kind":"set",
+    "name":"double_x",
+    "named":{
+       "kind":"binop",
+       "op":"*",
+       "e1":{
+          "kind":"number",
+          "value":2
+       },
+       "e2":{
+          "kind":"identifier",
+          "name":"x"
+       }
+    }
+ },
+ {
+    "kind":"if",
+    "condition":{
+       "kind":"binop",
+       "op":"<",
+       "e1":{
+          "kind":"identifier",
+          "name":"x"
+       },
+       "e2":{
+          "kind":"number",
+          "value":0
+       }
+    },
+    "true_part":[
+       {
+          "kind":"unknown"
+       }
+    ],
+    "false_part":[
+       {
+          "kind":"set",
+          "name":"return_value",
+          "named":{
+             "kind":"identifier",
+             "name":"double_x" }
+\end{lstlisting}
+    \caption{An An Abbreviated IR Trace Of The Program In Figure 1 }
+\end{minipage}
+\end{tabular}
+\end{figure}
+\pagebreak
+%insert figure of traced JSON here.
+
+\pagebreak
 \section{Supported Python Syntax}
 \label{section:pysyntax}
 
-Our initial goals are to fit within the the framework of containerless, and as such, the subset of supported Python does not introduce any additional features beyond those already supported in the Javascript-to-IR representation, which includes some very useful features - such as while loops - but does not allow integration of some very pythonic features, such as 'for all' loops, the 'in' keyword, and even the modulo operator. All supported Python syntax is supported within the tracing framework, and is detailed below.
+Our goals is to fit within the the framework of Containerless so the subset of Python we support maps directly to a strict subset of the JavaScript supported by Containerless. The Python syntax we support is detailed below.
 
-(TODO we are waiting for the final version before cleaning up formatting, but we will do so).
 \[\begin{array}{lrcll}
-BinaryOp & op2 & ::= & + & \text{Addition}
+\text{BinaryOp} & \text{op2} & ::= & \text{+} & \text{Addition}
 \\
-&&& - & \text{Subtraction}
+&&& \text{-} & \text{Subtraction}
 \\
-&&& * & \text{Multiplication}
+&&& \text{*} & \text{Multiplication}
 \\
-&&& / & \text{Division}
+&&& \text{/} & \text{Division}
 \\
-&&& == & \text{Equals}
+&&& \text{==} & \text{Equals}
 \\
-&&& != & \text{Not equals}
+&&& \text{!=} & \text{Not equals}
 \\
-&&& < & \text{Less than}
+&&& \text{<} & \text{Less than}
 \\
-&&& <= & \text{Less than or equal to}
+&&& \text{<=} & \text{Less than or equal to}
 \\
-&&& > & \text{Greater than}
+&&& \text{>} & \text{Greater than}
 \\
-&&& >= & \text{Greater than or equal to}
+&&& \text{>=} & \text{Greater than or equal to}
 \\
-&&& and & \text{And}
+\text{UnaryOp} & \text{op1} & ::= & \text{-} & \text{Numeric negation}
 \\
-&&& or & \text{Or}
+\text{Exp} & \text{exp} & ::= & \text{Name} & \text{Variable}
 \\
-UnaryOp & op1 & ::= & not & \text{Logical negation}
-\\ 
-&&& - & \text{Negate}
+&&& \text{Exp(<Exp>*)} & \text{Function call}
 \\
-Exp & exp & ::= & Name & \text{Variable}
+&&& \text{Exp BinOp Exp} & \text{Binary operation}
 \\
-&&& Exp(<Exp>*) & \text{Function call}
+&&& \text{UnaryOp Exp} & \text{Unary operation}
 \\
-&&& Exp.Name & \text{Attribute access}
+&&& \text{Int} & \text{Integer}
 \\
-&&& Exp[Exp] & \text{Slice access}
+&&& \text{Bool} & \text{Boolean}
 \\
-&&& Exp BinOp Exp & \text{Binary operation}
+&&& \text{Name = Exp} & \text{Variable assignment}
 \\
-&&& UnaryOp Exp & \text{Unary operation}
+&&& \text{def Name(<Name>*) : Block} & \text{Function definition}
 \\
-&&& Int & \text{Integer}
+&&& \text{return Exp} & \text{Return}
 \\
-&&& Bool & \text{Boolean}
-\\
-&&& String & \text{String}
-\\
-&&& [<Exp>*] & \text{List}
-\\
-&&& {<Exp:Exp>*} & \text{Dictionary}
-\\
-&&& Name = Exp & \text{Variable assignment}
-\\
-&&& Exp[Exp] = Exp & \text{Slice assignment}
-\\
-&&& Exp.Name = Exp & \text{Attribute assignment}
-\\
-&&& def Name(<Name>*) : Block & \text{Function definition}
-\\
-&&& return Exp & \text{Return}
-\\
-&&& if Exp: Block else: Block & \text{If-then-else}
-\\
-&&& while Exp: Block & \text{While}
-\\
+&&& \text{if Exp: Block else: Block} & \text{If-then-else}
 \end{array}\]
 
 \section{A-Normal Form Transformation}
 
 \label{section:anf}
- In Python, variables are scoped much differently than in Rust. Rust utilizes block scoping, meaning variables are scoped to the block of code they are declared in. If a variable is declared inside a loop, conditional, or other block of code, the variable cannot be accessed outside the block. On the other hand, Python only supports scoping at the function, class, and module levels. So, in Python, all variables defined in while loops, for loops, if/else statements, etc... are available at the nearest class, function, or module level. If directly translated to Rust, this scoping would result in errors if the programmer defined a variable inside a loop, conditional, or other sub-block and then tried to access it outside the block it was defined in. To preserve this functionality of Python, our ANF transformer creates a variable declaration for every variable at the top of the nearest module or function. The variable declaration simply sets the variable to None so that the variables scope is preserved. If variables are declared at a higher scope (eg. in a closure), we do not reinitialize the variable to None at the beginning of the lower scope, we only change the higher scope.  We do not support the use of object oriented programming here, so we don't normalize variables in classes, focusing on modules and functions instead 
+A-Normal Form is program transformation that simplifies compilation of source code. It is more commonly used in functional languages, but can be used over imperative languages too. Generally, A-Normal Form simply refers to having all function applications named \cite{ANF}. This simplifies compilation because intermediate results are computed separately and named. Our A-Normal Form normalizer preforms this transformation, but it also re-initializes variables and coverts for loops to while loops. It should be noted that due to time constraints, tracing was not implemented for loops. A loop can be normalized to ANF using our normalizer, but it is not possible to trace it yet.
+\par
+ In Python, variables are scoped differently than in Rust. Rust utilizes block scoping, meaning variables are scoped to the block of code they are declared in. If a variable is declared inside a loop, conditional, or other block of code, the variable cannot be accessed outside the block. On the other hand, Python only supports scoping at the function, class, and module levels. So, in Python, all variables defined in while loops, for loops, if/else statements, etc... are available at the nearest class, function, or module level. If directly translated to Rust, this scoping would result in errors if the programmer defined a variable inside a loop, conditional, or other sub-block and then tried to access it outside the block it was defined in. For an illustration, see figures 3 and 4. To preserve this functionality of Python, our ANF transformer creates a variable declaration for every variable at the top of the nearest module or function. The variable declaration simply sets the variable to None so that the variables scope is preserved. If variables are declared at a higher scope (eg. in a closure), we do not reinitialize the variable to None at the beginning of the lower scope, we only change the higher scope.  We do not support the use of object oriented programming here, so we don't normalize variables in classes, focusing on functions instead.
+
+\begin{figure}[htbp]
+\begin{tabular}{p{0.5\textwidth}p{0.5\textwidth}}
+    \begin{minipage}{.5\textwidth}
+    \begin{lstlisting}[language=Python]
+     def function():
+        if True:
+            x = 1
+        x += 1
+
+    \end{lstlisting}
+    \caption{Python Code With Lifted Variable Definition -- Runs Properly}
+    \label{fig:fig1}
+    \end{minipage}
+    &
+    \begin{minipage}{.5\textwidth}
+\begin{lstlisting}
+     fn function():
+        if (true){
+            let x = 1;
+        }
+        x += 1;
+    \end{lstlisting}
+    \caption{Rust Code With Lifted Variable Definition -- Produces Compilation Error Because x Is Not Defined}
+\end{minipage}
+\end{tabular}
+\end{figure}
+
  \par
- Our ANF-Transformer also converts all for loops to while loops. In Rust for loops are actually quite similar to Python for loops. Both languages use for loops that iterate over an iterator and do not support direct C style for loops. Both Rust and Python also have iterators that can be infinite. To avoid the possibility of infinite looping, for loops are converted to while loops, and we only support iterating over index-able finite collections. An example of a for loop transformation is found below:
-\begin{verbatim}
-    for x in array_x:
-        y += x
- \end{verbatim}
- 
- Is transformed to: 
- \begin{verbatim}
-    loop_incrementor0 = 0
-    while loop_incrementor0 < len(array_x):
-        x = array_x[loop_incrementor]
-        y += x 
-        loop_incrementor0 += 1
-\end{verbatim}
-(the above will be formatted in the final paper as per you suggestions Benno)
-Here, we first wrap the iterator in a call to the builtin len function, to ascertain the length of the iterator. Then we instantiate a new variable to track the number of times the while loop has been run. The target variable is also moved inside the loop and set to to the iterator indexed to the current loop iteration. Finally, we increment the tracker variable inside the loop. 
+ Our ANF-Transformer also converts all for loops to while loops. In Rust, for loops are actually quite similar to Python for loops. Both languages use for loops that iterate over an iterator and do not support direct C style for loops. Both Rust and Python also have iterators that can be infinite. To avoid the possibility of infinite looping, for loops are converted to while loops, and we only support iterating over index-able finite collections.
 
-\par 
-During ANF normalization, we also name unnamed function applications.  This is primarily done to comply with the specs for the intermediate representation of Containerless and to keep the A-Normal Form code in compliance with common definitions of A-Normal Form Code. It should be noted that we do not provide a name to the applications of the builtin len function in Python. This is acceptable because there is no analogous built in function in Containerless' IR or in Rust. Rather, in Rust the array class contains a method to ascertain the length of the array. In Javascript and Containerless' IR, the length is a property of the array. When Python code is traced on our environment, the calls to len are replaced with a call to get the length property of the array, to conform with the Containerless IR. Therefore, applications of the len builtin function do not need to be named by the ANF normalizer. 
+\begin{figure}[htbp]
+\begin{tabular}{p{0.5\textwidth}p{0.5\textwidth}}
+    \begin{minipage}{.5\textwidth}
+    \begin{lstlisting}[language=Python]
+     def double_absolute_value(x):
 
-\section{Tracing}
+        double_x = 2 * x
+
+        if x < 0:
+            return_value = -double_x
+        else:
+            return_value = double_x
+
+        print(return_value)
+
+        return return_value
+    \end{lstlisting}
+    \caption{Source Code For An Example Serverless Function Before ANF Normalization}
+    \label{fig:fig1}
+    \end{minipage}
+    &
+    \begin{minipage}{.5\textwidth}
+\begin{lstlisting}
+     def double_absolute_value(x):
+
+        double_x = None
+        return_value = None
+        app0 = None
+
+        double_x = 2 * x
+
+        if x < 0:
+            return_value = -double_x
+        else:
+            return_value = double_x
+
+        app0 = print(return_value)
+
+        return return_value
+    \end{lstlisting}
+    \caption{Source Code For An Example Serverless Function After ANF Normalization}
+\end{minipage}
+\end{tabular}
+\end{figure}
+
+\section{Inserting Tracing Statements}
 \label{section:tracing}
 
-There are two distinct phases of tracing. First, the source code of a ANF normalized Python function must be transformed to contain calls (in addition to the original code) to the tracing infrastructure. 
-Then the resulting Python function must be run, producing JSON traces that could be used to compile to Rust in Containerless. 
+To insert the tracing statements into a Python function, we first insert an "import" statement to import the expression objects utilized by our tracing library. Next, for every statement, we import the correct tracing function. For example, a call to the trace\_set function must proceed any python code that sets the value of a variable. When tracing statements are inserted into functions, the body of the function must also have tracing statements inserted into it. To capture the arguments, calls to the trace\_let function (which defines a variable) must be inserted at the top of the function for every parameter. When if statements are traced, separate statements are inserted into the if block and the else block. During execution, only the block that is actually executed is traced.
+\par
+Since a new serverless invoker was not built, we insert a wrapper function around the user function. This enables us to pass a tracing module (to allow the use of different tracing code if desired) to the function being executed. This wrapper is directly called by our runner, similar to how a serverless invoker would invoke a serverless function. After this wrapper function is inserted, the function can be executed to produce a trace. See figure 7 for a program after ANF normalization and insertion of tracing statements.
+\par
+One challenge to highlight is that JavaScript functions in Containerless are run by Node.js which encapsulates a lot of functionality. Creating a realistic Python run-time (even outside of the invoker) that fully mimics the JavaScript run-time then becomes complex: we would have to emulate a portion of the functionality of Node.js in Python in order to create truly identical traces. The overhead associated with creating this would have detracted from our focus on translation from Python to IR, and it's also unclear if - from the invoker's perspective - having a Node-like Python run-time would even be desirable. While we opted to use the simple function wrapper described above, creating a Node.js-like run-time for Python functions may be a necessary step in future work to allow for more rigorous comparison between JavaScript and Python traces.
 
-To insert the tracing statements into a Python function, we first insert an "import" statement to import our tracing library.
-Next, for every statement, we import the correct tracing function. For example, a call to the traceSet function must proceed any python code that sets the value of a variable.
+%After the tracing library statements are inserted into the source code, the function .
 
-After the tracing library statements are inserted into the source code, we can run our function, and both execute the function, and produce a trace. 
+%When JavaScript serverless functions are run in container-mode within the containerless framework, they run within the node.js environment. As a consequence of this, the JavaScript functions run using the common asynchronous request/response format in web programming. Using OpenWhisk as an example - where JavaScript functions agan run using node.js but other languages run in other runtimes - we stubbed out our own Python runtime for containerless tracing that uses lists to pass parameters to the function. This tracing runtime allowed us to produce Python traces without utilizing a serverless invoker.
 
-When JavaScript serverless functions are run in container-mode within the containerless framework, they run within the node.js environment. As a consequence of this, the JavaScript functions run using the common asynchronous request/response format in web programming. Using OpenWhisk as an example - where JavaScript functions agan run using node.js but other languages run in other runtimes - we stubbed out our own Python runtime for containerless tracing that uses JSON dictionaries as the function parameter and function response. This tracing runtime allowed us to produce Python traces without utilizing a serverless invoker. 
+
+\begin{figure}[H]
+    \centering
+    \begin{lstlisting}[language=Python]
+import tracing.exp as exp
+def serverless_function(trace, args):
+    def double_absolute_value(x):
+        x000 = trace.trace_function_body('ret00')
+        trace.trace_let('x', x000)
+        trace.trace_let('double_x', exp.UndefinedExp())
+        double_x = None
+        trace.trace_let('return_value', exp.UndefinedExp())
+        return_value = None
+        trace.trace_let('app0', exp.UndefinedExp())
+        app0 = None
+
+        trace.trace_set('double_x',
+            exp.BinaryOpExp('*', exp.NumberExp(2),
+            exp.IdExp('x')))
+        double_x = 2 * x
+
+        test =  exp.BinaryOpExp('<',
+            exp.IdExp('x'), exp.NumberExp(0))
+        if x < 0:
+            trace.trace_if_true(test)
+            trace.trace_set('return_value', exp.UnaryOpExp('-',
+                exp.IdExp('double_x')))
+            return_value = -double_x
+        else:
+            trace.trace_if_false(test)
+            trace.trace_set('return_value', exp.IdExp('double_x'))
+            return_value = double_x
+
+        trace.trace_function_call('app0',
+            ['print', exp.IdExp('return_value')])
+        app0 = print(return_value)
+
+        trace.trace_break('ret00', exp.IdExp('return_value'))
+        trace.exit_block()
+        return return_value
+
+    trace.trace_function_call('result',
+        [exp.IdExp('double_absolute_value'),
+        exp.IndexExp(exp.IdExp('args'), exp.NumberExp(0))])
+    result = double_absolute_value(args[0])
+    return result
+    \end{lstlisting}
+    \caption{ANF Transformation and Tracing Statement Insertion of Code From Figure 5}
+    \label{fig:my_label}
+\end{figure}
 
 \section{Evaluation}
 \label{section:evaluation}
 
-Since this work did not encompass modifications to the invoker, and indeed, containerless does not run Python functions in any capacity, it was not possible to run performance tests using the containerless infrastructure. Thus, our evaluation focuses on correctness of the produced traces. Based on the limited number of Python functions supported, we constructed a series of test Python programs and pushed them through our system to produce traces. We then tested the original Python against the stripped traces to ensure they produced identical outputs with a variety of parameters engineering to guarantee full code coverage of the original test functions. A sample of an original Python function, the normalized functions, the annotated normalized function, the trace, and then the re-interpreted python code produced from the trace are shown below.
+Since this work did not encompass modifications to the invoker (Containerless does not run Python functions in any capacity) it was not possible to run performance tests using the Containerless infrastructure or to accurately test Rust compiled from our generated IR. Thus, our evaluation focuses on correctness of the produced traces.A series of test JavaScript and Python functions were written. The JavaScript functions were traced in Containerless, and the Python functions were traced in our system. The resulting IR traces were inspected to determine if they were similar.
 
-TODO: We will have this done by the time the project is due.
+A tangible result of our choice to write a runner as a temporary stopgap until future work can be done to integrate Python into the invoker is seen in the difference in IR in the initial call and in the return (response). IR generated from JavaScript calls function via a callback, whereas IR generated from our Python runner is invoked by a direct function call. Similarly, IR generated from JavaScript terminates via the respond function, whereas our Python functions use a typical return statement.
+
+Ignoring the above (expected differences) in the outermost and innermost layers of the traces, we can still observe that the bodies of serverless functions produce near identical IR. This manual process leaves something to be desired, but more rigorous testing would require coupling with components of Containerless that were beyond the scope of this project. The github repo for this project (https://github.com/csci5535-s20/project-containerless-py) contains a collection of examples written in both Python and JavaScript with corresponding transformed code and traces.
 
 \section{Related Work}
 \label{section:relwork}
 
-Our work builds on the concepts and code presented in Herbert and Guha \cite{ServerlessAccel}, which was built upon the principles presented in \cite{FormalFoundations}. \cite{ServerlessAccel} focuses on the entire process of creating a JavaScript to IR framework, an IR to Rust compilation process, and a serverless function invoker compatible with OpenWhisk \cite{OpenWhisk}. Our work is more narrow, and seeks to modify the JavaScript to IR phase into a Python to IR process.
+Our work builds on the concepts and code presented in Herbert and Guha \cite{ServerlessAccel}, which was built upon the principles presented in \cite{FormalFoundations}. \cite{ServerlessAccel} focuses on the entire process of creating a JavaScript to IR framework, an IR to Rust compilation process, and a serverless function invoker compatible with OpenWhisk \cite{OpenWhisk}. Our work is more narrow, and seeks to modify the JavaScript-to-IR phase into a Python-to-IR process.
 
 
-Work has been done towards formalizing a semantics for Python \cite{pyOpSem}, and there are many tools and libraries for instrumenting Python code that this work builds upon (such as \cite{rpython}). However, our work is specifically geared towards the subset of Python needed to write serverless functions. This is in contrast with existing work which focuses on either creation of general purpose tools or solutions for a particular case (other than serverless).
+Work has been done towards formalizing a semantics for Python \cite{pyOpSem}. However, our work is specifically geared towards the subset of Python needed to write serverless functions. This is in contrast with existing work which focuses on either creation of general purpose tools or solutions for a particular case (other than serverless).
 
 \section{Conclusion}
-
-TODO by paper deadline
+In this work, a system for executing python at run-time to produce traces for Containerless is presented. Python code was normalized and had tracing statements inserted into it as in Containerless. In a simplified run-time environment, the transformed code was executed and produced JSON traces similar to analogous JavaScript functions.  This tracing mechanism is the first step towards making Containerless accessible to Python developers. Next steps would include creating a more rigorous Python run-time, creating a Python invoker, and more rigorous testing.
 
 %%
 %% The acknowledgments section is defined using the "acks" environment
 %% (and NOT an unnumbered section). This ensures the proper
 %% identification of the section in the article metadata, and the
 %% consistent spelling of the heading.
-\begin{acks}
-TBD
-\end{acks}
 
 %%
 %% The next two lines define the bibliography style to be used, and
@@ -267,4 +373,3 @@ TBD
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{paper}
 \end{document}
-
