@@ -30,7 +30,7 @@ Once that is installed, you can create traces from python functions using run.py
 ```
 ./run.py -v -t -o examples/python/ -f examples/python/arithmetic.py
 ```
-The above assumes your python instalation lives at `/usr/bin/python3.7`. If it is elsewhere, the below should be run:
+The above assumes your python installation lives at `/usr/bin/python3.7`. If it is elsewhere, the below should be run:
 ```
 python3 run.py -v -t -o examples/python/ -f examples/python/arithmetic.py
 ```
